@@ -2,8 +2,9 @@
 The purpose of this module is to manage the wifi icon that appears in the menu bar.
 """
 
-from threading import Thread
 import tkinter
+from threading import Thread
+from multiprocessing import Value
 import random
 import time
 from PIL import ImageTk, Image
@@ -23,7 +24,10 @@ class WifiIcon(tkinter.Label): #pylint: disable=too-many-ancestors
         self.configure(height=self.widget_size)
         self.configure(background=self.parent['background'])
         self.load_images()
-        self.configure(image=self.status_images[random.choice(list(self.status_images))])
+        self.wifi_signal = Value('i', 100)
+        self.wifi_status = Value('i', 1) #0=off, 1=connected, 2=disconnected
+        self.bind('<<wifi_update>>', self.select_image)
+        self.select_image()
         self.wifi_thread = Thread(target=self.random_status, daemon=True)
         self.wifi_thread.start()
         self.update()
@@ -51,11 +55,36 @@ class WifiIcon(tkinter.Label): #pylint: disable=too-many-ancestors
             "/Modules/Wifi/wifi_off.png").convert('RGBA').resize((self.image_size,
                                                                   self.image_size)))
 
+    def select_image(self, event=None): #pylint: disable=unused-argument
+        """
+        This function is indirectly triggered by the DBus thread whenever there is a change to the
+        wifi connection status or signal strength.
+        """
+        if self.wifi_status.value == 0:
+            self.configure(image=self.status_images['off'])
+            return
+        if self.wifi_status.value == 2:
+            self.configure(image=self.status_images['disc'])
+            return
+        if self.wifi_signal.value > 75:
+            self.configure(image=self.status_images['100'])
+            return
+        if self.wifi_signal.value > 50:
+            self.configure(image=self.status_images['75'])
+            return
+        if self.wifi_signal.value > 25:
+            self.configure(image=self.status_images['50'])
+            return
+        self.configure(image=self.status_images['25'])
+        return
+
     def random_status(self):
         """
         This is a dummy function to randomly change the icon before I have a chance to hook up the
         DBus bindings.
         """
         while 1:
-            self.configure(image=self.status_images[random.choice(list(self.status_images))])
+            self.wifi_status.value = random.randint(0, 2)
+            self.wifi_signal.value = random.randint(1, 100)
+            self.event_generate('<<wifi_update>>')
             time.sleep(1)

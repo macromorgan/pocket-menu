@@ -4,6 +4,7 @@ The purpose of this module is to manage drawing the menubar widget for the wirel
 
 import tkinter
 from threading import Thread
+from multiprocessing import Value
 import random
 import time
 from PIL import ImageTk, Image
@@ -24,7 +25,10 @@ class BatteryIcon(tkinter.Label): #pylint: disable=too-many-ancestors
         self.configure(height=self.widget_size)
         self.configure(background=parent['background'])
         self.load_images()
-        self.configure(image=self.status_images[random.choice(list(self.status_images))])
+        self.battery_capacity = Value('i', 100)
+        self.battery_charging = Value('i', 1)
+        self.bind('<<battery_update>>', self.select_image)
+        self.select_image()
         self.battery_thread = Thread(target=self.random_status, daemon=True)
         self.battery_thread.start()
         self.update()
@@ -52,11 +56,37 @@ class BatteryIcon(tkinter.Label): #pylint: disable=too-many-ancestors
             "/Modules/Battery/battery_charge.png").convert('RGBA').resize((self.image_size,
                                                                            self.image_size)))
 
+    def select_image(self, event=None): #pylint: disable=unused-argument
+        """
+        This function is indirectly triggered by the DBus thread whenever there is a change to the
+        battery charging status or capacity detected.
+        """
+        if self.battery_charging.value == 1:
+            self.configure(image=self.status_images['charge'])
+            return
+        if self.battery_capacity.value > 75:
+            self.configure(image=self.status_images['100'])
+            return
+        if self.battery_capacity.value > 50:
+            self.configure(image=self.status_images['75'])
+            return
+        if self.battery_capacity.value > 25:
+            self.configure(image=self.status_images['50'])
+            return
+        if self.battery_capacity.value > 10:
+            self.configure(image=self.status_images['25'])
+            return
+        self.configure(image=self.status_images['10'])
+        return
+
     def random_status(self):
         """
         This is just a dummy function to keep updating the image before I have a chance to
         implement proper DBus bindings.
         """
+        random_values = [100, 75, 50, 25, 10]
         while 1:
-            self.configure(image=self.status_images[random.choice(list(self.status_images))])
+            self.battery_charging.value = random.randint(0, 1)
+            self.battery_capacity.value = random.choice(random_values)
+            self.event_generate('<<battery_update>>')
             time.sleep(1)
