@@ -19,7 +19,7 @@ class Main(tkinter.Tk):
     """
     def __init__(self):
         super().__init__()
-        #self.root.attributes('-fullscreen', True)
+        #self.attributes('-fullscreen', True)
         self.geometry("480x272")
         self.update()
         self.configure(background="#505050")
@@ -36,7 +36,8 @@ class Main(tkinter.Tk):
         self.body = tkinter.Frame(self.main_window, background=self.main_window['background'])
         self.body.pack(side="bottom", fill="both", expand=True)
         self.body.update()
-        self.body.configure(height=self.body.winfo_height(), width=self.body.winfo_width())
+        self.body.configure(height=(self.main_window['height'] - self.menu['height']),
+                            width=self.main_window['width'])
         self.update()
         self.applauncher = launcher.MainAppWindow(self.body)
         self.applauncher.pack(fill="both", expand=True)
