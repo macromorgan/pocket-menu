@@ -91,11 +91,21 @@ class MenuBar(tkinter.Frame): #pylint: disable=too-many-ancestors
 
     def add_widgets(self):
         """
-        Add widgets to the menubar.
+        Add widgets to the menubar. I don't care why the fail to load (as there's probably a
+        million reasons they would fail), but if they fail let's not display them at all.
         """
-        self.right_widgets.append(wifi_widget.WifiIcon(self.right_submenu))
-        self.right_widgets.append(bluetooth_widget.BluetoothIcon(self.right_submenu))
-        self.left_widgets.append(battery_widget.BatteryIcon(self.left_submenu))
+        try:
+            self.right_widgets.append(wifi_widget.WifiIcon(self.right_submenu))
+        except: #pylint: disable=bare-except
+            print("Could Not Detect Wifi")
+        try:
+            self.right_widgets.append(bluetooth_widget.BluetoothIcon(self.right_submenu))
+        except: #pylint: disable=bare-except
+            print("Could Not Detect Bluetooth")
+        try:
+            self.left_widgets.append(battery_widget.BatteryIcon(self.left_submenu))
+        except: #pylint: disable=bare-except
+            print("Could Not Detect Battery")
         for widget in self.right_widgets:
             widget.pack(side="right")
         for widget in self.left_widgets:

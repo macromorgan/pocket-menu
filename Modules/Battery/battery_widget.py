@@ -3,12 +3,45 @@ The purpose of this module is to manage drawing the menubar widget for the wirel
 """
 
 import tkinter
-from threading import Thread
 from multiprocessing import Value
-import random
-import time
+import dbus
 from PIL import ImageTk, Image
+import Modules.DBus.dbus_main as dbus_main
 import __main__
+
+def check_battery():
+    """
+    This function is to check for the presense of a battery and return true if one is found. This
+    function runs outside of the class because that seemed to interfere with the threading.
+    """
+    proxy = dbus_main.DBUS_BUS.get_object('org.freedesktop.UPower',
+                                          '/org/freedesktop/UPower/devices/DisplayDevice')
+    powerdev = dbus.Interface(proxy, 'org.freedesktop.DBus.Properties')
+    return bool(powerdev.Get('org.freedesktop.UPower.Device', 'IsPresent'))
+
+def get_battery_details(charging, capacity):
+    """
+    This function is to check the battery capacity and charge state on initial widget load. Like
+    the function above it this was excluded from the class because it interfered with the
+    threading of the dbus mainloop function.
+    """
+    proxy = dbus_main.DBUS_BUS.get_object('org.freedesktop.UPower',
+                                          '/org/freedesktop/UPower/devices/DisplayDevice')
+    getmanager = dbus.Interface(proxy, 'org.freedesktop.DBus.Properties')
+    update_battery = False
+    try:
+        new_capacity = int(getmanager.Get('org.freedesktop.UPower.Device', 'Percentage'))
+        if new_capacity != capacity.value:
+            capacity.value = new_capacity
+            update_battery = True
+        new_status = int(getmanager.Get('org.freedesktop.UPower.Device', 'State'))
+        if new_status != charging.value:
+            charging.value = new_status
+            update_battery = True
+    except: #pylint: disable=bare-except
+        print("Error reading battery")
+    if update_battery is True:
+        update_battery = False
 
 class BatteryIcon(tkinter.Label): #pylint: disable=too-many-ancestors
     """
@@ -27,11 +60,37 @@ class BatteryIcon(tkinter.Label): #pylint: disable=too-many-ancestors
         self.load_images()
         self.battery_capacity = Value('i', 100)
         self.battery_charging = Value('i', 1)
-        self.bind('<<battery_update>>', self.select_image)
-        self.select_image()
-        self.battery_thread = Thread(target=self.random_status, daemon=True)
-        self.battery_thread.start()
+        self.present = check_battery()
+        if self.present is True:
+            get_battery_details(self.battery_charging, self.battery_capacity)
+            self.bind('<<battery_update>>', self.select_image)
+            self.select_image()
+            dbus_main.DBUS_BUS.add_signal_receiver(self.dbus_signal_handler,
+                                                   bus_name='org.freedesktop.UPower',
+                                                   dbus_interface=\
+                                                   'org.freedesktop.DBus.Properties',
+                                                   signal_name='PropertiesChanged',
+                                                   path=\
+                                                   '/org/freedesktop/UPower/devices/DisplayDevice')
+        else:
+            raise ValueError('Battery Not Present')
         self.update()
+
+    def dbus_signal_handler(self, interface, data, signaltype): #pylint: disable=unused-argument
+        """
+        This is the callback for handling signals returned from DBus to get the updated battery
+        status.
+        """
+        update = False
+        if 'State' in data and int(data['State']) != self.battery_charging.value:
+            self.battery_charging.value = int(data['State'])
+            update = True
+        if 'Percentage' in data and int(data['Percentage']) != self.battery_capacity.value:
+            self.battery_capacity.value = int(data['Percentage'])
+            update = True
+        if update is True:
+            self.event_generate('<<battery_update>>')
+            update = False
 
     def load_images(self):
         """
@@ -78,15 +137,3 @@ class BatteryIcon(tkinter.Label): #pylint: disable=too-many-ancestors
             return
         self.configure(image=self.status_images['10'])
         return
-
-    def random_status(self):
-        """
-        This is just a dummy function to keep updating the image before I have a chance to
-        implement proper DBus bindings.
-        """
-        random_values = [100, 75, 50, 25, 10]
-        while 1:
-            self.battery_charging.value = random.randint(0, 1)
-            self.battery_capacity.value = random.choice(random_values)
-            self.event_generate('<<battery_update>>')
-            time.sleep(1)

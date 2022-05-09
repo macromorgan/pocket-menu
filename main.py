@@ -8,6 +8,7 @@ a whole.
 
 import tkinter
 import os
+import Modules.DBus.dbus_main as dbus_main #pylint: disable=unused-import
 import Modules.Elements.ui_elements as ui_elements
 import Modules.Launcher.launcher as launcher
 
