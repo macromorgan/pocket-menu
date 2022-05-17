@@ -6,8 +6,12 @@ launcher application.
 
 import tkinter
 import tkinter.ttk
+from tkinter.messagebox import askyesno
+import os
+import dbus
 from PIL import ImageTk, Image
 import __main__
+import Modules.DBus.dbus_main as dbus_main
 import Modules.Elements.ui_elements as ui_elements
 
 class SettingsElementFrame(tkinter.Frame): #pylint: disable=too-many-ancestors
@@ -69,19 +73,46 @@ class PowerSettings(SettingsElementFrame): #pylint: disable=too-many-ancestors
         self.restart_button.grid(column=1, row=0)
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=1)
+        self.shutdown_button.icon.configure(command=self.shutdown_confirm)
+        self.restart_button.icon.configure(command=self.restart_confirm)
         self.update()
 
-class BacklightSettings(SettingsElementFrame): #pylint: disable=too-many-ancestors
+    def shutdown_confirm(self): #pylint: disable=no-self-use
+        """
+        Simple function to trigger a dialog and shutdown if the answer is yes.
+        """
+        answer = askyesno(title="Shutdown System?", message="Are you sure you want to shutdown?")
+        if answer:
+            obj = dbus_main.DBUS_BUS.get_object('org.freedesktop.login1',
+                                                '/org/freedesktop/login1')
+            iface = dbus.Interface(obj, 'org.freedesktop.login1.Manager')
+            iface.PowerOff(1)
+
+    def restart_confirm(self): #pylint: disable=no-self-use
+        """
+        Simple function to trigger a dialog and restart if the answer is yes.
+        """
+        answer = askyesno(title="Restart System?", message="Are you sure you want to restart?")
+        if answer:
+            obj = dbus_main.DBUS_BUS.get_object('org.freedesktop.login1',
+                                                '/org/freedesktop/login1')
+            iface = dbus.Interface(obj, 'org.freedesktop.login1.Manager')
+            iface.Reboot(1)
+
+class BacklightSettings(SettingsElementFrame): #pylint: disable=too-many-ancestors, too-many-instance-attributes
     """
     This class draws a scale to allow users to adjust the backlight value.
     """
     def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
+        self.backlight_name = self.get_backlight_name()
+        self.backlight_max = self.get_backlight_max(self.backlight_name)
         self.titleframe.configure(text="Backlight Settings")
-        self.scale_value = tkinter.DoubleVar
         self.backlightslider = ui_elements.PrettyScale(self.widgetframe)
-        self.backlightslider.configure(from_=0, to=10, length=int(self.parent['width']*0.6))
+        self.backlightslider.configure(from_=0, to=self.backlight_max,
+                                       length=int(self.parent['width']*0.6))
+        self.backlightslider.set(self.get_backlight_value(self.backlight_name))
         self.light_off_img = ImageTk.PhotoImage(Image.open(__main__.DIR_PATH + \
             "/Modules/Settings/light-off.png").convert('RGBA').resize((32, 32)))
         self.light_on_img = ImageTk.PhotoImage(Image.open(__main__.DIR_PATH + \
@@ -94,6 +125,49 @@ class BacklightSettings(SettingsElementFrame): #pylint: disable=too-many-ancesto
         self.backlightslider.grid(row=0, column=1)
         self.light_on_label.grid(row=0, column=2)
         self.update()
+        self.backlightslider.bind("<ButtonRelease-1>", self.update_backlight)
+
+    def update_backlight(self, frame=None, event=None): #pylint: disable=unused-argument
+        """
+        Update the backlight once the slider is done being triggered, and then set the slider to
+        the new backlight value (slider can be float, but backlight can only be int, so set the
+        slider to a matching int). If the backlight can't be set then set the slider back to what
+        it was. We set with DBus since it allows us to do so without root.
+        """
+        backlight_value = round(self.backlightslider.get())
+        try:
+            obj = dbus_main.DBUS_BUS.get_object('org.freedesktop.login1',
+                                                '/org/freedesktop/login1/session/auto')
+            iface = dbus.Interface(obj, 'org.freedesktop.login1.Session')
+            iface.SetBrightness('backlight', self.backlight_name, dbus.UInt32(backlight_value))
+            self.backlightslider.set(backlight_value)
+        except: #pylint: disable=bare-except
+            self.backlightslider.set(self.get_backlight_value(self.backlight_name))
+
+    def get_backlight_name(self): #pylint: disable=no-self-use
+        """
+        Get the name of the first backlight by traversing sysfs.
+        """
+        try:
+            return os.listdir('/sys/class/backlight')[0]
+        except: #pylint: disable=bare-except
+            return None
+
+    def get_backlight_max(self, backlight_name): #pylint: disable=no-self-use
+        """
+        Get the max value of the backlight from sysfs. Assume the min value is 0.
+        """
+        with open('/sys/class/backlight/'+backlight_name+'/max_brightness') as backlightfile:
+            max_brightness = int(backlightfile.readline())
+        return max_brightness
+
+    def get_backlight_value(self, backlight_name): #pylint: disable=no-self-use
+        """
+        Get the current value of the backlight from sysfs.
+        """
+        with open('/sys/class/backlight/'+backlight_name+'/brightness') as backlightfile:
+            brightness = int(backlightfile.readline())
+        return brightness
 
 class VolumeSettings(SettingsElementFrame): #pylint: disable=too-many-ancestors
     """
@@ -144,7 +218,10 @@ class AllSettings(tkinter.Frame): #pylint: disable=too-many-ancestors
         """
         self.settings_providers.append(PowerSettings(self))
         self.settings_providers.append(VolumeSettings(self))
-        self.settings_providers.append(BacklightSettings(self))
+        try:
+            self.settings_providers.append(BacklightSettings(self))
+        except: #pylint: disable=bare-except
+            print("Cannot register backlight control")
         for settings_provider in self.settings_providers:
             settings_provider.pack(side="top", expand=True)
             if settings_provider != self.settings_providers[-1]:
